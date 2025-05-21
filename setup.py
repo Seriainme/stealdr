@@ -1,8 +1,7 @@
 import json
-
+from concurrent.futures import ThreadPoolExecutor
+from itertools import chain
 import pydash
-
-# todo  用自己封装的方法
 from loguru import logger
 import requests
 from dataclasses import dataclass, field
@@ -16,65 +15,89 @@ class PageSama:
     headers: dict = field(default_factory=dict)  # 默认为空字典
     cookies: dict = field(default_factory=dict)  # 默认为空字典
     proxy: dict = field(default_factory=dict)  # 默认为空字典
-    max_page: int = 1  # default 1
+    offset: int = 1
+    max_page: int = 100  # todo update later
+    item_path: str = None
+    multi_thread: bool = True
 
     def __post_init__(self):
         self.page_axios = list((self.post_data or self.get_params).keys())[0]
+        self.start_offset = int((self.post_data or self.get_params).get(self.page_axios))
         self.is_get_method = True if self.get_params else False
 
     def run(self):
-        pass
+        page_index_list = [self.start_offset + i * self.offset for i in range(self.max_page)]
+        if self.multi_thread:
+            with ThreadPoolExecutor() as executor:
+                return chain.from_iterable(
+                    executor.map(lambda pdex: self.peel(self.fetch_one_page(pdex), self.item_path),
+                                 page_index_list)
+                )
+
+        else:
+            return chain.from_iterable(
+                [self.peel(self.fetch_one_page(pdex), self.item_path) for pdex in page_index_list])
 
     @logger.catch
     def fetch_one_page(self, page_num):
-        # todo
         if self.is_get_method:
+            current_params = self.get_params.copy()
             # 更改页数
-            self.get_params.update({self.page_axios: page_num})
+            current_params[self.page_axios] = page_num
+
             # remake params
             if self.upd_params():
-                self.get_params.update(self.upd_params())
-                
+                current_params.update(self.upd_params())
+
             # remake headers
             if self.upd_hd():
                 self.headers.update(self.upd_hd())
+
             res = requests.get(
                 self.url,
-                params=self.get_params,
+                params=current_params,
                 headers=self.headers,
                 cookies=self.cookies,
                 proxies=self.proxy,
             )
         else:
-            self.post_data.update({self.page_axios: page_num})
-            req_data = json.dumps(self.post_data)
+            current_params = self.get_params.copy()
+            # 更改页数
+            current_params[self.page_axios] = page_num
+
             # remake params
             if self.upd_params():
-                self.get_params.update(self.upd_params())
-
+                current_params.update(self.upd_params())
             # remake headers
             if self.upd_hd():
                 self.headers.update(self.upd_hd())
+
             res = requests.post(
                 self.url,
-                data=req_data,
+                data=json.dumps(current_params),
                 headers=self.headers,
                 cookies=self.cookies,
                 proxies=self.proxy,
             )
-
         return res.json()
 
     def peel(self, res_json: dict, item_path: str):
         parsed_items = pydash.get(res_json, item_path) or []
         return parsed_items
 
-    def upd_hd(self): ...
+    def upd_hd(self):
+        ...
 
-    def upd_params(self): ...
+    def upd_params(self):
+        ...
 
 
 if __name__ == "__main__":
-    # todo  1.无差别翻页
-    # 2. 找一个测试的网站，manga porn
-    PageSama()
+    url = "https://spa1.scrape.center/api/movie/"
+    params = {
+        "offset": "10",
+        "limit": "10",
+    }
+
+    instance_a = PageSama(url=url, get_params=params, offset=20, max_page=3, item_path='results')
+    print(len(list(instance_a.run())))
