@@ -34,14 +34,11 @@ class PageSama:
         page_index_list = [self.start_offset + i * self.offset for i in range(self.max_page)]
         if self.multi_thread:
             with ThreadPoolExecutor() as executor:
-                return chain.from_iterable(
-                    executor.map(lambda pdex: self.peel(self.fetch_one_page(pdex), self.item_path),
-                                 page_index_list)
-                )
+                tmp = executor.map(lambda pdex: self.peel(self.fetch_one_page(pdex)), page_index_list)
 
         else:
-            return chain.from_iterable(
-                [self.peel(self.fetch_one_page(pdex), self.item_path) for pdex in page_index_list])
+            tmp = [self.peel(self.fetch_one_page(pdex)) for pdex in page_index_list]
+        return chain.from_iterable(tmp) if self.item_path else tmp
 
     @logger.catch
     def fetch_one_page(self, page_num):
@@ -86,9 +83,11 @@ class PageSama:
             )
         return res.json()
 
-    def peel(self, res_json: dict, item_path: str):
-        parsed_items = pydash.get(res_json, item_path) or []
-        return parsed_items
+    def peel(self, res_json: dict):
+        if self.item_path:
+            return pydash.get(res_json, self.item_path) or []
+        else:
+            return res_json
 
     def upd_hd(self):
         ...
@@ -104,5 +103,7 @@ if __name__ == "__main__":
         "limit": "10",
     }
 
-    instance_a = PageSama(url=url, get_params=params, offset=20, max_page=3, item_path='results', is_remote_log=True)
+    # instance_a = PageSama(url=url, get_params=params, offset=20, max_page=3, item_path='results')
+    instance_a = PageSama(url=url, get_params=params, offset=20, max_page=3, )
+    print(list(instance_a.run()))
     print(len(list(instance_a.run())))
