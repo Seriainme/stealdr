@@ -6,6 +6,8 @@ from loguru import logger
 import requests
 from dataclasses import dataclass, field
 
+from log_to_mongo_col import MongoLog
+
 
 @dataclass
 class PageSama:
@@ -19,11 +21,14 @@ class PageSama:
     max_page: int = 100  # todo update later
     item_path: str = None
     multi_thread: bool = True
+    is_remote_log: bool = False
 
     def __post_init__(self):
         self.page_axios = list((self.post_data or self.get_params).keys())[0]
         self.start_offset = int((self.post_data or self.get_params).get(self.page_axios))
         self.is_get_method = True if self.get_params else False
+        if self.is_remote_log:
+            logger = MongoLog()()
 
     def run(self):
         page_index_list = [self.start_offset + i * self.offset for i in range(self.max_page)]
@@ -99,5 +104,5 @@ if __name__ == "__main__":
         "limit": "10",
     }
 
-    instance_a = PageSama(url=url, get_params=params, offset=20, max_page=3, item_path='results')
+    instance_a = PageSama(url=url, get_params=params, offset=20, max_page=3, item_path='results', is_remote_log=True)
     print(len(list(instance_a.run())))
