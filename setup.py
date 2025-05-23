@@ -12,25 +12,32 @@ from log_to_mongo_col import MongoLog
 @dataclass
 class PageSama:
     url: str = ""  # 默认为空字符串
-    get_params: dict = field(default_factory=dict)  # 默认为空字典
-    post_data: dict = field(default_factory=dict)  # 默认为空字典
-    headers: dict = field(default_factory=dict)  # 默认为空字典
-    cookies: dict = field(default_factory=dict)  # 默认为空字典
-    proxy: dict = field(default_factory=dict)  # 默认为空字典
+    get_params: dict = field(default_factory=dict)
+    post_data: dict = field(default_factory=dict)
+    headers: dict = field(default_factory=dict)
+    cookies: dict = field(default_factory=dict)
+    proxy: dict = field(default_factory=dict)
     offset: int = 1
     max_page: int = 100  # todo update later
-    item_path: str = None
+    item_path_dict: dict = field(default_factory=dict)
     multi_thread: bool = True
     is_remote_log: bool = False
+    item_path_key: str = ''
+    detail_path_list: list = field(default_factory=list)
 
     def __post_init__(self):
         self.page_axios = list((self.post_data or self.get_params).keys())[0]
         self.start_offset = int((self.post_data or self.get_params).get(self.page_axios))
         self.is_get_method = True if self.get_params else False
+
         if self.is_remote_log:
             logger = MongoLog()()
 
-    def run(self):
+        if self.item_path_dict:
+            self.item_path_key = next(iter(self.item_path_dict.keys()))
+            self.detail_path_list = self.item_path_dict.get(self.item_path_key)
+
+    def mix_or_pick(self):
         page_index_list = [self.start_offset + i * self.offset for i in range(self.max_page)]
         if self.multi_thread:
             with ThreadPoolExecutor() as executor:
@@ -38,7 +45,14 @@ class PageSama:
 
         else:
             tmp = [self.peel(self.fetch_one_page(pdex)) for pdex in page_index_list]
-        return chain.from_iterable(tmp) if self.item_path else tmp
+        if self.item_path_key:
+            page_res = list(chain.from_iterable(tmp))
+            return [
+                [pydash.get(one, path_) for one in page_res]
+                for path_ in self.detail_path_list
+            ]
+        else:
+            return tmp
 
     @logger.catch
     def fetch_one_page(self, page_num):
@@ -84,8 +98,8 @@ class PageSama:
         return res.json()
 
     def peel(self, res_json: dict):
-        if self.item_path:
-            return pydash.get(res_json, self.item_path) or []
+        if self.item_path_key:
+            return pydash.get(res_json, self.item_path_key) or []
         else:
             return res_json
 
@@ -103,7 +117,7 @@ if __name__ == "__main__":
         "limit": "10",
     }
 
-    # instance_a = PageSama(url=url, get_params=params, offset=20, max_page=3, item_path='results')
-    instance_a = PageSama(url=url, get_params=params, offset=20, max_page=3, )
-    print(list(instance_a.run()))
-    print(len(list(instance_a.run())))
+    parse_path_dict = {"results": ['name', 'alias']}
+    instance_a = PageSama(url=url, get_params=params, offset=20, max_page=3, item_path_dict=parse_path_dict)
+    # instance_a = PageSama(url=url, get_params=params, offset=20, max_page=3, )
+    print(list(instance_a.mix_or_pick()))
