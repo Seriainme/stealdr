@@ -7,6 +7,7 @@ import requests
 from dataclasses import dataclass, field
 
 from log_to_mongo_col import MongoLog
+from typing import Dict, List
 
 
 @dataclass
@@ -19,16 +20,21 @@ class PageSama:
     proxy: dict = field(default_factory=dict)
     offset: int = 1
     max_page: int = 100  # todo update later
-    item_path_dict: dict = field(default_factory=dict)
+    item_path_dict: Dict[str, List[str]] = field(default_factory=dict)
     multi_thread: bool = True
     is_remote_log: bool = False
     item_path_key: str = ''
     detail_path_list: list = field(default_factory=list)
     break_path: str = ''
+    recursive_req_list: list = field(default_factory=list)
 
     def __post_init__(self):
-        self.page_axios = list((self.post_data or self.get_params).keys())[0]
-        self.start_offset = int((self.post_data or self.get_params).get(self.page_axios))
+        if self.break_path:
+            self.page_axios = list((self.post_data or self.get_params).keys())[0]
+        else:
+            self.page_axios = list((self.post_data or self.get_params).keys())[0]
+            self.start_offset = (self.post_data or self.get_params).get(self.page_axios)
+
         self.is_get_method = True if self.get_params else False
 
         if self.is_remote_log:
@@ -39,14 +45,18 @@ class PageSama:
             self.detail_path_list = self.item_path_dict.get(self.item_path_key)
 
     def mix_or_pick(self):
+        # 返回所有的response json 或者解析过的字段的nested list
         if self.break_path:
-            for one_res in self.fetch_one_page():
-                if break_point := pydash.get(one_res, self.break_path):
-                    # continue iteration
-                    # todo 
-                    pass
-                else:
-                    break
+            self.recursive_req()
+            if self.item_path_key:
+                new_list = list(chain.from_iterable([self.peel(one) for one in self.recursive_req_list]))
+                return [
+                    [pydash.get(one, path_) for one in new_list]
+                    for path_ in self.detail_path_list
+                ]
+            else:
+                return self.recursive_req_list
+
         else:
             page_index_list = [self.start_offset + i * self.offset for i in range(self.max_page)]
             if self.multi_thread:
@@ -66,7 +76,6 @@ class PageSama:
 
     @logger.catch
     def fetch_one_page(self, page_num):
-        # todo ? maybe rewrite
         if self.is_get_method:
             current_params = self.get_params.copy()
             # 更改页数
@@ -120,6 +129,14 @@ class PageSama:
     def upd_params(self):
         ...
 
+    def recursive_req(self):
+        res = requests.get(self.url, params=self.get_params, headers=self.headers, cookies=self.cookies,
+                           proxies=self.proxy)
+        self.recursive_req_list.append(res.json())
+        if new_cursor := pydash.get(res.json(), self.break_path):
+            self.get_params[self.page_axios] = new_cursor
+            self.recursive_req()
+
 
 def all_normal_pages():
     url = "https://spa1.scrape.center/api/movie/"
@@ -138,9 +155,8 @@ def turn_with_iteration():
     headers = {
         'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/114.0.0.0 Safari/537.36',
     }
-    item_path_dict = ''  # todo
+    item_path_dict = {'data.topic_card_list.items': ['dynamic_card_item.modules.module_author.name']}
     params = {
-        # 'offset': 'heat_2913317_18_20', # todo
         'offset': '',
         'topic_id': '1308237',
         'sort_by': '0',
@@ -151,7 +167,9 @@ def turn_with_iteration():
 
     url = 'https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/topic'
     path_str = 'data.topic_card_list.offset'
-    instance_a = PageSama(url=url, get_params=params, break_path=path_str)
+    res = PageSama(url=url, get_params=params, break_path=path_str, headers=headers,
+                   item_path_dict=item_path_dict).mix_or_pick()
+    print(res)
 
 
 if __name__ == "__main__":
