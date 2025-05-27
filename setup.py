@@ -49,7 +49,10 @@ class PageSama:
         if self.break_path:
             self.recursive_req()
             if self.item_path_key:
+                # 解析第一层，得到列表数据
                 new_list = list(chain.from_iterable([self.peel(one) for one in self.recursive_req_list]))
+
+                # 解析从最小单元json返回的数据
                 return [
                     [pydash.get(one, path_) for one in new_list]
                     for path_ in self.detail_path_list
@@ -166,8 +169,8 @@ def turn_with_iteration():
     }
 
     url = 'https://api.bilibili.com/x/polymer/web-dynamic/v1/feed/topic'
-    path_str = 'data.topic_card_list.offset'
-    res = PageSama(url=url, get_params=params, break_path=path_str, headers=headers,
+    break_path_str = 'data.topic_card_list.offset'
+    res = PageSama(url=url, get_params=params, break_path=break_path_str, headers=headers,
                    item_path_dict=item_path_dict).mix_or_pick()
     print(res)
 
