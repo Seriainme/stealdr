@@ -1,0 +1,8 @@
+# 忽略 .vscode 目录下的所有文件
+.vscode/
+
+# 忽略所有 .xml 文件
+*.xml
+
+# 忽略所有 .json 文件
+*.json
